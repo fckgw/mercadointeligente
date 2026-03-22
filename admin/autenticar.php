@@ -2,94 +2,116 @@
 /**
  * SISTEMA MERCADO INTELIGENTE - MVP
  * Arquivo: admin/autenticar.php
- * Finalidade: Processar a autenticação de usuários, validar senhas criptografadas e gerenciar permissões.
+ * Finalidade: Processar o login de usuários, validar segurança e registrar metadados de acesso.
  */
 
-// Inicia a sessão para permitir o armazenamento de dados do usuário logado
+// Inicia a sessão para permitir o armazenamento de dados do usuário durante a navegação
 session_start();
 
 // Importa a conexão com o banco de dados via PDO
 require_once '../core/db.php';
 
 /**
- * Verifica se a requisição foi enviada através do método POST (formulário de login).
+ * Verifica se a requisição de acesso foi enviada via formulário (Método POST)
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // Captura o e-mail e a senha digitados, removendo espaços em branco acidentais
-    $email_digitado_pelo_usuario = trim($_POST['email'] ?? '');
-    $senha_digitada_pelo_usuario = $_POST['senha'] ?? '';
+    // Captura as credenciais fornecidas pelo usuário, removendo espaços vazios acidentais
+    $email_fornecido_pelo_usuario = trim($_POST['email'] ?? '');
+    $senha_fornecida_pelo_usuario = $_POST['senha'] ?? '';
 
-    // Validação básica de preenchimento
-    if (empty($email_digitado_pelo_usuario) || empty($senha_digitada_pelo_usuario)) {
-        header("Location: login.php?erro=campos_vazios");
+    // Validação básica: impede o processamento se os campos estiverem vazios
+    if (empty($email_fornecido_pelo_usuario) || empty($senha_fornecida_pelo_usuario)) {
+        header("Location: login.php?erro=campos_obrigatorios");
         exit;
     }
 
     try {
         /**
          * CONSULTA AO BANCO DE DADOS
-         * Busca o registro do usuário através do e-mail informado.
+         * Busca os dados do usuário, incluindo o campo de troca de senha e a data do último acesso.
          */
-        $instrucao_sql_busca_usuario = "SELECT id, nome, email, senha, perfil, trocar_senha FROM usuarios WHERE email = ? LIMIT 1";
-        $comando_preparado_consulta = $pdo->prepare($instrucao_sql_busca_usuario);
-        $comando_preparado_consulta->execute([$email_digitado_pelo_usuario]);
+        $instrucao_sql_busca_usuario = "SELECT id, nome, email, senha, perfil, trocar_senha, data_do_ultimo_acesso FROM usuarios WHERE email = ? LIMIT 1";
+        $comando_preparado_busca = $pdo->prepare($instrucao_sql_busca_usuario);
+        $comando_preparado_busca->execute([$email_fornecido_pelo_usuario]);
         
-        // Recupera os dados do usuário como um array associativo
-        $informacoes_do_usuario_no_banco = $comando_preparado_consulta->fetch(PDO::FETCH_ASSOC);
+        $registro_do_usuario_encontrado = $comando_preparado_busca->fetch(PDO::FETCH_ASSOC);
 
         /**
-         * LOGICA DE VALIDAÇÃO DA SENHA
-         * O sistema utiliza a função password_verify para comparar a senha digitada
-         * com o Hash (criptografia) armazenado com segurança no banco de dados.
+         * VALIDAÇÃO DE SEGURANÇA
+         * Compara a senha digitada com o Hash BCRYPT armazenado no banco de dados.
          */
-        if ($informacoes_do_usuario_no_banco && password_verify($senha_digitada_pelo_usuario, $informacoes_do_usuario_no_banco['senha'])) {
+        if ($registro_do_usuario_encontrado && password_verify($senha_fornecida_pelo_usuario, $registro_do_usuario_encontrado['senha'])) {
             
-            // SENHA CORRETA: Criamos as variáveis de sessão para manter o usuário conectado
-            $_SESSION['usuario_id']     = $informacoes_do_usuario_no_banco['id'];
-            $_SESSION['usuario_nome']   = $informacoes_do_usuario_no_banco['nome'];
-            $_SESSION['usuario_perfil'] = $informacoes_do_usuario_no_banco['perfil']; // 'admin' ou 'cliente'
+            /**
+             * REGISTRO DO ÚLTIMO ACESSO (INTELIGÊNCIA DE DADOS)
+             * 1. Capturamos a data que estava no banco (acesso anterior) para mostrar na tela.
+             * 2. Atualizamos o banco com a data/hora de AGORA para o próximo login.
+             */
+            $data_do_acesso_anterior_armazenada = $registro_do_usuario_encontrado['data_do_ultimo_acesso'];
+
+            $instrucao_sql_atualizar_acesso = "UPDATE usuarios SET data_do_ultimo_acesso = NOW() WHERE id = ?";
+            $comando_preparado_atualizacao = $pdo->prepare($instrucao_sql_atualizar_acesso);
+            $comando_preparado_atualizacao->execute([$registro_do_usuario_encontrado['id']]);
 
             /**
-             * VERIFICAÇÃO DE SEGURANÇA: TROCA DE SENHA OBRIGATÓRIA
-             * Se a coluna 'trocar_senha' estiver marcada como 1, o usuário é o novo cadastrado
-             * e deve ser enviado para a tela de alteração de senha antes de usar o sistema.
+             * CRIAÇÃO DAS VARIÁVEIS DE SESSÃO
              */
-            if ($informacoes_do_usuario_no_banco['trocar_senha'] == 1) {
+            $_SESSION['usuario_id']     = $registro_do_usuario_encontrado['id'];
+            $_SESSION['usuario_nome']   = $registro_do_usuario_encontrado['nome'];
+            $_SESSION['usuario_perfil'] = $registro_do_usuario_encontrado['perfil'];
+
+            // Formata a data do acesso anterior para exibição amigável no Simulador/Dashboard
+            if (!empty($data_do_acesso_anterior_armazenada)) {
+                $data_objeto_formatacao = new DateTime($data_do_acesso_anterior_armazenada);
+                $_SESSION['ultimo_acesso_formatado'] = $data_objeto_formatacao->format('d/m/Y \à\s H:i');
+            } else {
+                $_SESSION['ultimo_acesso_formatado'] = "Primeiro Acesso ao Sistema";
+            }
+
+            /**
+             * FLUXO DE REDIRECIONAMENTO INTELIGENTE
+             */
+
+            // REGRA 1: Se o usuário precisa trocar a senha obrigatoriamente
+            if ($registro_do_usuario_encontrado['trocar_senha'] == 1) {
                 header("Location: trocar_senha_obrigatoria.php");
                 exit;
             }
 
-            /**
-             * REDIRECIONAMENTO POR PERFIL
-             * Usuário Admin -> Vai para o Painel Administrativo (Dashboard)
-             * Usuário Cliente -> Vai para o Simulador de Compras (Mercado Inteligente)
-             */
-            if ($informacoes_do_usuario_no_banco['perfil'] === 'admin') {
+            // REGRA 2: Se for Administrador, encaminha para o Painel de Controle
+            if ($registro_do_usuario_encontrado['perfil'] === 'admin') {
                 header("Location: dashboard.php");
-            } else {
+                exit;
+            } 
+            
+            // REGRA 3: Se for Cliente, encaminha para o Simulador de Compras
+            else {
                 header("Location: ../cliente/simulador.php");
+                exit;
             }
-            exit;
 
         } else {
-            // Caso o e-mail não exista ou a senha não confira com o Hash
+            /**
+             * FALHA NA AUTENTICAÇÃO
+             * Redireciona para o login com código de erro.
+             */
             header("Location: login.php?erro=1");
             exit;
         }
 
-    } catch (PDOException $excecao_banco_dados) {
+    } catch (PDOException $erro_tecnico_banco_dados) {
         /**
-         * Em caso de falha técnica de conexão com o banco de dados na Locaweb,
-         * o sistema registra o erro e interrompe a execução com uma mensagem clara.
+         * TRATAMENTO DE ERROS NA LOCAWEB
+         * Caso ocorra uma falha de conexão ou sintaxe, o sistema interrompe e exibe a falha.
          */
-        die("Erro Crítico de Autenticação no Banco de Dados: " . $excecao_banco_dados->getMessage());
+        die("Erro Crítico ao processar a autenticação: " . $erro_tecnico_banco_dados->getMessage());
     }
 
 } else {
     /**
-     * Caso alguém tente acessar este arquivo diretamente pela URL (sem ser pelo formulário),
-     * o sistema redireciona automaticamente para a tela de login.
+     * PROTEÇÃO DE ACESSO DIRETO
+     * Se o arquivo for acessado diretamente sem o formulário, volta para o login.
      */
     header("Location: login.php");
     exit;
