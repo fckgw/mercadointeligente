@@ -58,6 +58,11 @@ if (isset($_SESSION['usuario_id']) && $_SESSION['usuario_perfil'] === 'admin') {
             <button type="submit" class="btn btn-primary w-100 shadow-sm">Entrar no Sistema</button>
         </form>
 
+        <div class="mt-4 text-center">
+            <p class="small text-muted">Ainda não tem uma conta? <br> 
+            <a href="../cliente/cadastro.php" class="fw-bold text-primary text-decoration-none">Cadastre-se Gratuitamente</a></p>
+        </div>
+
         <div class="mt-4 pt-3 border-top">
             <a href="../index.php" class="text-decoration-none small text-muted">← Voltar para o site</a>
         </div>
