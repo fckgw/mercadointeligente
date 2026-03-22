@@ -2,39 +2,43 @@
 /**
  * SISTEMA MERCADO INTELIGENTE - MVP
  * Arquivo: admin/produtos.php
- * Finalidade: Gestão completa de produtos, filtros avançados e edição em massa.
+ * Finalidade: Gestão avançada da base de produtos, organização de categorias e BI.
  */
 
-// Configurações para exibição de erros durante o desenvolvimento na Locaweb
+// Configurações de exibição de erros para o ambiente Locaweb
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// Controle de sessão e conexão com o banco de dados
+// Controle de acesso e conexão com a base de dados
 require_once 'sessao.php';
 require_once '../core/db.php';
 
-// Captura dos parâmetros de busca e filtro vindos da URL
-$termo_de_pesquisa = $_GET['q'] ?? '';
-$categoria_para_filtro = $_GET['cat'] ?? '';
+/**
+ * CAPTURA DE FILTROS DA URL
+ */
+$termo_da_pesquisa = $_GET['q'] ?? '';
+$categoria_selecionada_no_filtro = $_GET['cat'] ?? '';
 
 /**
- * CONSULTA 1: BUSCA DE CATEGORIAS
- * Obtém todas as categorias únicas cadastradas para alimentar o filtro e o modal.
+ * CONSULTAS PARA ALIMENTAR OS COMPONENTES DA TELA
  */
-$consulta_categorias = $pdo->query("SELECT DISTINCT categoria FROM produtos WHERE categoria IS NOT NULL AND categoria != '' ORDER BY categoria ASC");
-$lista_de_categorias_cadastradas = $consulta_categorias->fetchAll(PDO::FETCH_COLUMN);
 
-/**
- * CONSULTA 2: BUSCA DE MERCADOS
- * Necessário para o modal de lançamento de preço manual.
- */
+// 1. Recupera categorias únicas para o filtro superior e modais
+$consulta_categorias = $pdo->query("SELECT DISTINCT categoria FROM produtos WHERE categoria != '' ORDER BY categoria ASC");
+$lista_de_categorias_existentes = $consulta_categorias->fetchAll(PDO::FETCH_COLUMN);
+
+// 2. Recupera marcas únicas para o modal de edição
+$consulta_marcas = $pdo->query("SELECT DISTINCT marca FROM produtos WHERE marca != '' ORDER BY marca ASC");
+$lista_de_marcas_existentes = $consulta_marcas->fetchAll(PDO::FETCH_COLUMN);
+
+// 3. Recupera mercados para permitir lançamento manual de preços
 $consulta_mercados = $pdo->query("SELECT id, nome, regiao FROM mercados ORDER BY nome ASC");
-$lista_de_mercados_disponiveis = $consulta_mercados->fetchAll();
+$lista_de_mercados_disponiveis = $consulta_mercados->fetchAll(PDO::FETCH_ASSOC);
 
 /**
- * CONSULTA 3: LISTAGEM DE PRODUTOS COM ÚLTIMA COTAÇÃO
- * Query otimizada para trazer o produto e apenas o preço mais recente vinculado a ele.
+ * CONSULTA PRINCIPAL: LISTAGEM DE PRODUTOS
+ * Busca o produto e a cotação de preço mais recente vinculada a ele (independente do mercado)
  */
 $instrucao_sql_principal = "
     SELECT 
@@ -55,26 +59,24 @@ $instrucao_sql_principal = "
     WHERE 1=1
 ";
 
-$parametros_da_busca = [];
+$parametros_da_consulta = [];
 
-// Aplica o filtro de texto (Nome ou Marca)
-if (!empty($termo_de_pesquisa)) {
+if (!empty($termo_da_pesquisa)) {
     $instrucao_sql_principal .= " AND (produtos.nome LIKE ? OR produtos.marca LIKE ?)";
-    $parametros_da_busca[] = "%$termo_de_pesquisa%";
-    $parametros_da_busca[] = "%$termo_de_pesquisa%";
+    $parametros_da_consulta[] = "%$termo_da_pesquisa%";
+    $parametros_da_consulta[] = "%$termo_da_pesquisa%";
 }
 
-// Aplica o filtro por categoria selecionada no DropDown
-if (!empty($categoria_para_filtro)) {
+if (!empty($categoria_selecionada_no_filtro)) {
     $instrucao_sql_principal .= " AND produtos.categoria = ?";
-    $parametros_da_busca[] = $categoria_para_filtro;
+    $parametros_da_consulta[] = $categoria_selecionada_no_filtro;
 }
 
 $instrucao_sql_principal .= " ORDER BY produtos.nome ASC";
 
 $comando_preparado = $pdo->prepare($instrucao_sql_principal);
-$comando_preparado->execute($parametros_da_busca);
-$lista_final_de_produtos = $comando_preparado->fetchAll();
+$comando_preparado->execute($parametros_da_consulta);
+$lista_de_produtos_exibicao = $comando_preparado->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
@@ -82,55 +84,55 @@ $lista_final_de_produtos = $comando_preparado->fetchAll();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Produtos - Mercado Inteligente</title>
+    <title>Gestão de Produtos - Mercado Inteligente</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <!-- SweetAlert2 para Pop-ups profissionais -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
+
     <style>
         body { background-color: #f4f7f6; padding-bottom: 100px; }
-        .cabecalho-fixo { background: #fff; border-bottom: 1px solid #e0e0e0; position: sticky; top: 0; z-index: 1020; }
-        .cartao-produto { border: 2px solid transparent; border-radius: 15px; transition: 0.3s; cursor: pointer; background: #fff; }
+        .cabecalho-estatico { background: #fff; border-bottom: 1px solid #dee2e6; position: sticky; top: 0; z-index: 1000; }
+        .cartao-produto { border-radius: 15px; border: 2px solid transparent; transition: 0.3s; background: #fff; cursor: pointer; position: relative; }
         .cartao-produto.selecionado { border-color: #0d6efd; background-color: #f0f7ff; }
-        .botao-editar-flutuante { position: absolute; top: 10px; right: 10px; z-index: 5; }
+        .botao-editar-individual { position: absolute; top: 10px; right: 10px; border-radius: 50%; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; z-index: 10; }
         
-        /* Barra de Ação em Massa Estilo Mobile */
-        #barra-acao-massa {
+        /* Barra de Ações em Massa (Rodapé) */
+        #barra-acoes-massa {
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 90%; max-width: 600px; background: #212529; color: white;
+            width: 92%; max-width: 550px; background: #1a1a1a; color: white;
             padding: 15px 25px; border-radius: 50px; display: none;
             justify-content: space-between; align-items: center; z-index: 2000;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.4);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
         }
+        
+        .check-selecao { width: 25px; height: 25px; cursor: pointer; }
     </style>
 </head>
 <body>
 
-<div class="cabecalho-fixo p-3 shadow-sm mb-4">
+<!-- CABEÇALHO E FILTROS -->
+<div class="cabecalho-estatico p-3 shadow-sm mb-4">
     <div class="container">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <a href="dashboard.php" class="btn btn-sm btn-light border text-muted"><i class="bi bi-chevron-left"></i> Painel</a>
-            <img src="../images/Logo_MercadoInteligente.png" alt="Logo" style="max-height: 40px;">
+            <a href="dashboard.php" class="btn btn-sm btn-light border text-muted"><i class="bi bi-arrow-left"></i> Painel</a>
+            <img src="../images/Logo_MercadoInteligente.png" style="max-height: 40px;">
             <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" id="selecionarTodosProdutos" onclick="funcaoAlternarSelecaoGeral(this)">
-                <label class="form-check-label small fw-bold">Tudo</label>
+                <input class="form-check-input" type="checkbox" id="marcarTodosProdutos" onclick="funcaoSelecionarTudo(this)">
+                <label class="small fw-bold">Tudo</label>
             </div>
         </div>
 
         <form action="" method="GET" class="row g-2">
             <div class="col-12 col-md-5">
-                <div class="input-group">
-                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
-                    <input type="text" name="q" class="form-control border-start-0" placeholder="Nome ou Marca..." value="<?php echo htmlspecialchars($termo_de_pesquisa); ?>">
-                </div>
+                <input type="text" name="q" class="form-control" placeholder="Produto ou marca..." value="<?php echo htmlspecialchars($termo_da_pesquisa); ?>">
             </div>
             <div class="col-9 col-md-5">
                 <select name="cat" class="form-select">
                     <option value="">Todas as Categorias</option>
-                    <?php foreach ($lista_de_categorias_cadastradas as $categoria_da_lista): ?>
-                        <option value="<?php echo $categoria_da_lista; ?>" <?php echo ($categoria_para_filtro == $categoria_da_lista) ? 'selected' : ''; ?>>
-                            <?php echo $categoria_da_lista; ?>
+                    <?php foreach($lista_de_categorias_existentes as $categoria_item): ?>
+                        <option value="<?php echo $categoria_item; ?>" <?php echo ($categoria_selecionada_no_filtro == $categoria_item) ? 'selected' : ''; ?>>
+                            <?php echo $categoria_item; ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -143,41 +145,41 @@ $lista_final_de_produtos = $comando_preparado->fetchAll();
 </div>
 
 <!-- BARRA DE AÇÕES EM MASSA -->
-<div id="barra-acao-massa">
-    <span id="texto-contagem-selecao" class="small">0 itens selecionados</span>
-    <button class="btn btn-warning btn-sm fw-bold rounded-pill px-3" onclick="abrirModalEdicaoEmMassa()">
-        <i class="bi bi-tags-fill me-1"></i> Categorizar em Massa
+<div id="barra-acoes-massa">
+    <span id="texto-itens-selecionados" class="small fw-bold">0 selecionados</span>
+    <button class="btn btn-warning btn-sm fw-bold rounded-pill px-4" onclick="abrirModalEdicaoEmMassa()">
+        <i class="bi bi-tags-fill"></i> Categorizar em Massa
     </button>
 </div>
 
+<!-- LISTAGEM DE PRODUTOS EM CARDS -->
 <div class="container">
     <div class="row g-3">
-        <?php foreach ($lista_final_de_produtos as $produto): ?>
+        <?php foreach ($lista_de_produtos_exibicao as $produto_individual): ?>
             <div class="col-12 col-md-6 col-lg-4">
-                <div class="card cartao-produto p-3 h-100 shadow-sm position-relative" id="container_produto_<?php echo $produto['id']; ?>">
+                <div class="card cartao-produto p-3 h-100 shadow-sm" id="container_produto_<?php echo $produto_individual['id']; ?>" onclick="funcaoMarcarCard(<?php echo $produto_individual['id']; ?>)">
                     
                     <div class="d-flex justify-content-between align-items-start">
-                        <!-- Checkbox de Seleção -->
-                        <input type="checkbox" name="produtos_selecionados[]" value="<?php echo $produto['id']; ?>" class="form-check-input check-produto-item" style="width:25px; height:25px;" onclick="funcaoAtualizarContagemSelecao()">
+                        <input type="checkbox" name="produtos_selecionados[]" value="<?php echo $produto_individual['id']; ?>" class="form-check-input check-selecao" id="checkbox_id_<?php echo $produto_individual['id']; ?>" onclick="event.stopPropagation(); atualizarEstadoDaInterface();">
                         
-                        <!-- Botão Editar Individual -->
-                        <button onclick="abrirModalEdicaoIndividual(<?php echo htmlspecialchars(json_encode($produto)); ?>)" class="btn btn-light btn-sm border shadow-sm botao-editar-flutuante">
-                            <i class="bi bi-pencil"></i>
+                        <!-- BOTÃO EDITAR INDIVIDUAL -->
+                        <button class="btn btn-light btn-sm border shadow-sm botao-editar-individual" onclick="event.stopPropagation(); abrirModalEdicaoIndividual(<?php echo htmlspecialchars(json_encode($produto_individual)); ?>)">
+                            <i class="bi bi-pencil-fill text-primary"></i>
                         </button>
                     </div>
 
                     <div class="mt-2">
-                        <span class="badge bg-primary-subtle text-primary text-uppercase mb-1" style="font-size: 0.65rem;"><?php echo $produto['marca']; ?></span>
-                        <h6 class="fw-bold text-dark mb-1 lh-sm"><?php echo $produto['nome']; ?></h6>
-                        <span class="badge bg-light text-muted border fw-normal"><?php echo $produto['categoria']; ?></span>
+                        <span class="badge bg-primary-subtle text-primary text-uppercase mb-1" style="font-size: 0.65rem;"><?php echo $produto_individual['marca']; ?></span>
+                        <h6 class="fw-bold text-dark mb-1 lh-sm"><?php echo $produto_individual['nome']; ?></h6>
+                        <span class="badge bg-light text-muted border fw-normal" style="font-size: 0.75rem;"><?php echo $produto_individual['categoria']; ?></span>
                     </div>
                     
                     <div class="mt-auto pt-3 border-top d-flex justify-content-between align-items-center">
                         <div>
-                            <h4 class="text-success fw-bold mb-0">R$ <?php echo number_format($produto['valor_unitario'], 2, ',', '.'); ?></h4>
-                            <small class="text-muted" style="font-size: 0.7rem;"><?php echo $produto['mercado_nome'] ?: 'Sem coleta'; ?></small>
+                            <h4 class="text-success fw-bold mb-0">R$ <?php echo number_format($produto_individual['valor_unitario'], 2, ',', '.'); ?></h4>
+                            <small class="text-muted" style="font-size: 0.7rem;"><i class="bi bi-shop"></i> <?php echo $produto_individual['mercado_nome'] ?: 'Sem cotação'; ?></small>
                         </div>
-                        <a href="historico_produto.php?id=<?php echo $produto['id']; ?>" class="btn btn-sm btn-outline-dark" title="Ver Histórico BI">
+                        <a href="historico_produto.php?id=<?php echo $produto_individual['id']; ?>" class="btn btn-sm btn-outline-dark" title="Ver Variação BI">
                             <i class="bi bi-graph-up"></i>
                         </a>
                     </div>
@@ -187,127 +189,211 @@ $lista_final_de_produtos = $comando_preparado->fetchAll();
     </div>
 </div>
 
-<!-- MODAL DE EDIÇÃO EM MASSA -->
-<div class="modal fade" id="modalEdicaoEmMassa" tabindex="-1">
+<!-- MODAL DE EDIÇÃO INDIVIDUAL (HÍBRIDO) -->
+<div class="modal fade" id="modalEdicaoIndividual" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <form class="modal-content" action="salvar_edicao_massa.php" method="POST" style="border-radius: 20px;">
+        <form class="modal-content" action="salvar_edicao_completa.php" method="POST" style="border-radius: 25px;">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold">Ajustar Produto</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="produto_id" id="campo_id_individual">
+                
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted">DESCRIÇÃO DO PRODUTO</label>
+                    <input type="text" name="nome" id="campo_nome_individual" class="form-control" required>
+                </div>
+
+                <div class="row">
+                    <!-- MARCA (LISTA OU NOVO) -->
+                    <div class="col-6 mb-3">
+                        <label class="form-label small fw-bold text-muted">MARCA</label>
+                        <select name="marca_existente" id="select_marca_individual" class="form-select" onchange="alternarEntradaManual(this.value, 'container_marca_nova')">
+                            <option value="">Selecione...</option>
+                            <?php foreach($lista_de_marcas_existentes as $marca_singular) echo "<option value='$marca_singular'>$marca_singular</option>"; ?>
+                            <option value="CADASTRAR_NOVA" class="text-primary fw-bold">+ Adicionar Nova</option>
+                        </select>
+                        <div id="container_marca_nova" style="display:none;" class="mt-2">
+                            <input type="text" name="marca_manual" class="form-control form-control-sm border-primary" placeholder="Nome da Marca">
+                        </div>
+                    </div>
+
+                    <!-- CATEGORIA (LISTA OU NOVO) -->
+                    <div class="col-6 mb-3">
+                        <label class="form-label small fw-bold text-muted">CATEGORIA</label>
+                        <select name="categoria_existente" id="select_categoria_individual" class="form-select" onchange="alternarEntradaManual(this.value, 'container_categoria_nova')">
+                            <option value="">Selecione...</option>
+                            <?php foreach($lista_de_categorias_existentes as $categoria_singular) echo "<option value='$categoria_singular'>$categoria_singular</option>"; ?>
+                            <option value="CADASTRAR_NOVA" class="text-primary fw-bold">+ Adicionar Nova</option>
+                        </select>
+                        <div id="container_categoria_nova" style="display:none;" class="mt-2">
+                            <input type="text" name="categoria_manual" class="form-control form-control-sm border-primary" placeholder="Nome da Categoria">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LANÇAMENTO BI -->
+                <div class="p-3 bg-light rounded-4 border">
+                    <label class="form-label small fw-bold text-primary"><i class="bi bi-lightning-fill"></i> ATUALIZAR PREÇO AGORA (BI)</label>
+                    <div class="row g-2">
+                        <div class="col-12 mb-2">
+                            <select name="mercado_id" class="form-select">
+                                <option value="">Onde você viu este preço?</option>
+                                <?php foreach($lista_de_mercados_disponiveis as $mercado_op): ?>
+                                    <option value="<?php echo $mercado_op['id']; ?>"><?php echo $mercado_op['nome']; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white">R$</span>
+                                <input type="number" name="novo_preco" step="0.01" class="form-control" placeholder="0,00">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg w-100 shadow mt-4 py-3 fw-bold">SALVAR ALTERAÇÕES</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL DE EDIÇÃO EM MASSA -->
+<div class="modal fade" id="modalEdicaoEmMassa" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" action="salvar_edicao_massa.php" method="POST" style="border-radius: 25px;">
             <div class="modal-header border-0 pb-0">
                 <h5 class="fw-bold">Categorização em Massa</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <input type="hidden" name="ids_dos_produtos" id="input_ids_massa">
+                <input type="hidden" name="ids_dos_produtos" id="input_ids_selecionados_massa">
                 
                 <div class="mb-3">
-                    <label class="form-label small fw-bold">Selecione uma Categoria Existente</label>
-                    <select name="categoria_existente" id="dropdown_categoria_massa" class="form-select" onchange="verificarOpcaoNovaCategoria(this.value)">
-                        <option value="">Escolher da lista...</option>
-                        <?php foreach ($lista_de_categorias_cadastradas as $cat_modal): ?>
+                    <label class="form-label small fw-bold">Escolha a Categoria para os Selecionados</label>
+                    <select name="categoria_existente" class="form-select form-select-lg" onchange="alternarEntradaManual(this.value, 'container_categoria_massa_nova')" required>
+                        <option value="">Selecione uma categoria...</option>
+                        <?php foreach($lista_de_categorias_existentes as $cat_modal): ?>
                             <option value="<?php echo $cat_modal; ?>"><?php echo $cat_modal; ?></option>
                         <?php endforeach; ?>
-                        <option value="ADICIONAR_NOVA" class="text-primary fw-bold">+ Adicionar Nova Categoria</option>
+                        <option value="CADASTRAR_NOVA" class="text-primary fw-bold">+ Criar Nova Categoria</option>
                     </select>
                 </div>
 
-                <div id="container_entrada_manual_categoria" style="display: none;" class="p-3 bg-light rounded-3 mb-3 border">
+                <div id="container_categoria_massa_nova" style="display:none;" class="p-3 bg-light rounded-3 mb-3 border">
                     <label class="form-label small fw-bold">Nome da Nova Categoria</label>
-                    <input type="text" name="categoria_nova_manual" id="input_categoria_manual" class="form-control" placeholder="Ex: Bebidas Alcoólicas">
+                    <input type="text" name="categoria_nova_manual" class="form-control" placeholder="Ex: Higiene Pessoal">
                 </div>
 
                 <button type="submit" class="btn btn-warning btn-lg w-100 shadow fw-bold py-3 mt-2">
-                    <i class="bi bi-check-all"></i> Aplicar a todos selecionados
+                    APLICAR EM TODOS OS ITENS
                 </button>
             </div>
         </form>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
 /**
- * Alterna a visibilidade do campo de texto caso a opção "Adicionar Nova" seja selecionada.
+ * FUNÇÕES DE INTERAÇÃO COM A INTERFACE
  */
-function verificarOpcaoNovaCategoria(valor_selecionado) {
-    const containerManual = document.getElementById('container_entrada_manual_categoria');
-    const inputManual = document.getElementById('input_categoria_manual');
+
+function alternarEntradaManual(valor_selecionado, id_do_container) {
+    const container = document.getElementById(id_do_container);
+    const input_interno = container.querySelector('input');
     
-    if (valor_selecionado === 'ADICIONAR_NOVA') {
-        containerManual.style.display = 'block';
-        inputManual.required = true;
-        inputManual.focus();
+    if (valor_selecionado === 'CADASTRAR_NOVA') {
+        container.style.display = 'block';
+        input_interno.required = true;
+        input_interno.focus();
     } else {
-        containerManual.style.display = 'none';
-        inputManual.required = false;
+        container.style.display = 'none';
+        input_interno.required = false;
     }
 }
 
-/**
- * Controla a exibição da barra de ações em massa e o destaque visual dos cards.
- */
-function funcaoAtualizarContagemSelecao() {
-    const itens_checados = document.querySelectorAll('input[name="produtos_selecionados[]"]:checked');
-    const barra_bulk = document.getElementById('barra-acao-massa');
-    const label_contagem = document.getElementById('texto-contagem-selecao');
+function abrirModalEdicaoIndividual(objeto_produto) {
+    document.getElementById('campo_id_individual').value = objeto_produto.id;
+    document.getElementById('campo_nome_individual').value = objeto_produto.nome;
     
-    // Remove destaque de todos e adiciona apenas nos selecionados
+    // Configura Marca
+    document.getElementById('select_marca_individual').value = objeto_produto.marca;
+    document.getElementById('container_marca_nova').style.display = 'none';
+
+    // Configura Categoria
+    document.getElementById('select_categoria_individual').value = objeto_produto.categoria;
+    document.getElementById('container_categoria_nova').style.display = 'none';
+    
+    new bootstrap.Modal(document.getElementById('modalEdicaoIndividual')).show();
+}
+
+function funcaoMarcarCard(identificador_produto) {
+    const checkbox = document.getElementById('checkbox_id_' + identificador_produto);
+    checkbox.checked = !checkbox.checked;
+    atualizarEstadoDaInterface();
+}
+
+function atualizarEstadoDaInterface() {
+    const elementos_checados = document.querySelectorAll('input[name="produtos_selecionados[]"]:checked');
+    const barra_acoes = document.getElementById('barra-acoes-massa');
+    const label_contador = document.getElementById('texto-itens-selecionados');
+    
+    // Reseta destaque de todos os cards
     document.querySelectorAll('.cartao-produto').forEach(card => card.classList.remove('selecionado'));
     
-    itens_checados.forEach(item => {
+    // Aplica destaque nos selecionados
+    elementos_checados.forEach(item => {
         document.getElementById('container_produto_' + item.value).classList.add('selecionado');
     });
 
-    if (itens_checados.length > 0) {
-        barra_bulk.style.display = 'flex';
-        label_contagem.innerText = itens_checados.length + ' produtos selecionados';
+    if (elementos_checados.length > 0) {
+        barra_acoes.style.display = 'flex';
+        label_contador.innerText = elementos_checados.length + ' produtos selecionados';
     } else {
-        barra_bulk.style.display = 'none';
+        barra_acoes.style.display = 'none';
     }
 }
 
-/**
- * Seleciona ou desseleciona todos os itens da página.
- */
-function funcaoAlternarSelecaoGeral(fonte_do_evento) {
-    const todos_os_checkboxes = document.getElementsByName('produtos_selecionados[]');
-    for (let i = 0; i < todos_os_checkboxes.length; i++) {
-        todos_os_checkboxes[i].checked = fonte_do_evento.checked;
+function funcaoSelecionarTudo(fonte_do_evento) {
+    const todos_os_checks = document.getElementsByName('produtos_selecionados[]');
+    for (let i = 0; i < todos_os_checks.length; i++) {
+        todos_os_checks[i].checked = fonte_do_evento.checked;
     }
-    funcaoAtualizarContagemSelecao();
+    atualizarEstadoDaInterface();
 }
 
-/**
- * Prepara e abre o modal de edição em massa.
- */
-function abrirModalEdicaoEmMassa() {
-    const itens_selecionados = document.querySelectorAll('input[name="produtos_selecionados[]"]:checked');
+function abrirModalMassa() {
+    const selecionados = document.querySelectorAll('input[name="produtos_selecionados[]"]:checked');
     let lista_de_ids = [];
-    itens_selecionados.forEach(item => lista_de_ids.push(item.value));
+    selecionados.forEach(item => lista_de_ids.push(item.value));
     
-    document.getElementById('input_ids_massa').value = lista_de_ids.join(',');
+    document.getElementById('input_ids_selecionados_massa').value = lista_de_ids.join(',');
     new bootstrap.Modal(document.getElementById('modalEdicaoEmMassa')).show();
 }
 
 /**
- * Dispara o SweetAlert caso o processamento em massa tenha sido concluído.
+ * FEEDBACK DE SUCESSO (SWEETALERT2)
  */
 document.addEventListener('DOMContentLoaded', function() {
-    const parametros_da_url = new URLSearchParams(window.location.search);
-    const total_alterado = parametros_da_url.get('sucesso_massa');
-    
-    if (total_alterado) {
+    const parametros_url = new URLSearchParams(window.location.search);
+    if (parametros_url.get('sucesso_massa')) {
         Swal.fire({
-            title: 'Categorização Concluída!',
-            text: total_alterado + ' produtos foram organizados com sucesso.',
+            title: 'Sucesso!',
+            text: parametros_url.get('sucesso_massa') + ' itens foram categorizados.',
             icon: 'success',
-            confirmButtonText: 'Ótimo',
             confirmButtonColor: '#0d6efd'
-        }).then(() => {
-            // Limpa a URL para evitar repetição do alerta no refresh
-            window.history.replaceState({}, document.title, "produtos.php");
-        });
+        }).then(() => window.history.replaceState({}, document.title, "produtos.php"));
+    }
+    if (parametros_url.get('sucesso_edicao')) {
+        Swal.fire({ title: 'Atualizado!', text: 'Produto e histórico salvos.', icon: 'success', confirmButtonColor: '#0d6efd' })
+        .then(() => window.history.replaceState({}, document.title, "produtos.php"));
     }
 });
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
