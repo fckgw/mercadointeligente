@@ -1,16 +1,13 @@
 <?php
 /**
- * SISTEMA MERCADO INTELIGENTE - MVP
+ * SISTEMA MERCADO INTELIGENTE
  * Arquivo: cliente/coleta.php
- * Finalidade: Registro manual de preços (pesquisa de campo) com inteligência de dados.
+ * Finalidade: Registro manual de preços para pesquisa de campo.
  */
 
 session_start();
 require_once '../core/db.php';
-
-// Busca mercados para o formulário
-$instrucao_sql_mercados = "SELECT id, nome, regiao FROM mercados ORDER BY nome ASC";
-$lista_de_mercados_cadastrados = $pdo->query($instrucao_sql_mercados)->fetchAll(PDO::FETCH_ASSOC);
+$lista_mercados = $pdo->query("SELECT * FROM mercados ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -22,19 +19,12 @@ $lista_de_mercados_cadastrados = $pdo->query($instrucao_sql_mercados)->fetchAll(
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        body { background-color: #f4f7f6; padding-bottom: 50px; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: #f4f7f6; padding-bottom: 50px; }
         .card-coleta { border: none; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); background: #fff; }
-        .input-estilizado { padding: 15px; border-radius: 12px; font-size: 1.1rem; }
+        .input-grande { padding: 15px; border-radius: 12px; }
         .sessao-atacado { background-color: #fff3cd; border: 1px solid #ffe69c; border-radius: 15px; padding: 15px; }
-        
-        /* Estilo do Autocomplete */
-        #container-sugestoes-coleta { 
-            position: absolute; width: 100%; z-index: 2000; background: #fff; 
-            border-radius: 0 0 15px 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
-            display: none; max-height: 250px; overflow-y: auto; border: 1px solid #eee;
-        }
-        .item-sugestao-clicavel { padding: 15px 20px; border-bottom: 1px solid #f8f9fa; cursor: pointer; }
-        .item-sugestao-clicavel:hover { background-color: #e7f1ff; color: #0d6efd; }
+        #sugestoes-coleta { position: absolute; width: 100%; z-index: 2000; background: #fff; border-radius: 0 0 15px 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); display: none; max-height: 250px; overflow-y: auto; border: 1px solid #eee; }
+        .item-sugestao { padding: 15px 20px; border-bottom: 1px solid #f8f9fa; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -50,98 +40,93 @@ $lista_de_mercados_cadastrados = $pdo->query($instrucao_sql_mercados)->fetchAll(
         
         <form action="processar_coleta_manual.php" method="POST">
             <div class="mb-3">
-                <label class="form-label small fw-bold text-muted">SUPERMERCADO</label>
-                <select name="mercado_id" class="form-select input-estilizado border-primary" required>
-                    <option value="">Onde você está pesquisando?</option>
-                    <?php foreach($lista_de_mercados_cadastrados as $mercado): ?>
-                        <option value="<?php echo $mercado['id']; ?>"><?php echo $mercado['nome']; ?> (<?php echo $mercado['regiao']; ?>)</option>
-                    <?php endforeach; ?>
-                </select>
+                <label class="form-label small fw-bold">SUPERMERCADO</label>
+                <div class="input-group">
+                    <select name="mercado_id" id="select_mercado_coleta" class="form-select input-grande border-primary" required>
+                        <option value="">Onde está pesquisando?</option>
+                        <?php foreach($lista_mercados as $mercado): ?>
+                            <option value="<?php echo $mercado['id']; ?>"><?php echo $mercado['nome']; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" class="btn btn-primary px-3" onclick="abrirNovoMercado()"><i class="bi bi-plus-lg"></i></button>
+                </div>
+            </div>
+
+            <div id="painel-mercado-coleta" style="display:none;" class="p-3 bg-light rounded-3 border mb-3">
+                <input type="text" id="nome_novo_mercado_coleta" class="form-control mb-2" placeholder="Nome do Mercado">
+                <button type="button" class="btn btn-success btn-sm w-100" onclick="gravarMercadoColeta()">CADASTRAR</button>
             </div>
 
             <div class="mb-3 position-relative">
-                <label class="form-label small fw-bold text-muted">NOME DO PRODUTO</label>
-                <input type="text" name="nome_produto" id="input_nome_coleta" class="form-control input-estilizado" placeholder="Ex: Arroz Tio João" autocomplete="off" onkeyup="funcaoBuscarProdutosLocal(this.value)" required>
-                <!-- Caixa de Autocomplete -->
-                <div id="container-sugestoes-coleta"></div>
+                <label class="form-label small fw-bold">NOME DO PRODUTO</label>
+                <input type="text" name="nome_produto" id="input_nome_coleta" class="form-control input-grande" placeholder="Arroz, Feijão..." autocomplete="off" onkeyup="buscarLocal(this.value)" required>
+                <div id="sugestoes-coleta"></div>
             </div>
 
             <div class="row g-2 mb-3">
                 <div class="col-6">
-                    <label class="form-label small fw-bold text-muted">UNIDADE</label>
-                    <select name="unidade" class="form-select input-estilizado">
-                        <option value="UN">Unidade (UN)</option>
-                        <option value="KG">Quilo (KG)</option>
-                        <option value="L">Litro (L)</option>
-                        <option value="CX">Caixa (CX)</option>
-                    </select>
+                    <label class="form-label small fw-bold">UNIDADE</label>
+                    <select name="unidade" class="form-select input-grande"><option value="UN">Unidade</option><option value="KG">Quilo</option><option value="L">Litro</option></select>
                 </div>
                 <div class="col-6">
                     <label class="form-label small fw-bold text-success">VALOR UNITÁRIO</label>
-                    <input type="text" name="valor_unitario" class="form-control input-estilizado fw-bold text-success" inputmode="numeric" placeholder="0,00" onkeyup="funcaoMascaraMoeda(this)" required>
+                    <input type="text" name="valor_unitario" class="form-control input-grande fw-bold" placeholder="0,00" onkeyup="mascara(this)" required>
                 </div>
             </div>
 
-            <!-- SEÇÃO DE ATACADO (BI ADICIONAL) -->
             <div class="sessao-atacado mb-4 shadow-sm">
-                <h6 class="fw-bold mb-3 text-warning-emphasis"><i class="bi bi-tags-fill"></i> Oferta de Atacado?</h6>
+                <h6 class="fw-bold mb-3"><i class="bi bi-tags-fill"></i> Oferta de Atacado?</h6>
                 <div class="row g-2">
-                    <div class="col-6">
-                        <label class="form-label small fw-bold">QTD MÍNIMA</label>
-                        <input type="number" name="quantidade_minima_atacado" class="form-control border-warning" placeholder="Ex: 6">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label small fw-bold">VALOR ATACADO</label>
-                        <input type="text" name="valor_atacado" class="form-control border-warning" placeholder="0,00" onkeyup="funcaoMascaraMoeda(this)">
-                    </div>
+                    <div class="col-6"><label class="form-label small">A partir de (Qtd)</label><input type="number" name="qtd_atacado" class="form-control"></div>
+                    <div class="col-6"><label class="form-label small">Valor Atacado</label><input type="text" name="valor_atacado" class="form-control" onkeyup="mascara(this)"></div>
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-primary btn-lg w-100 shadow fw-bold py-3">
-                <i class="bi bi-cloud-upload"></i> SALVAR NO BANCO DE DADOS
-            </button>
+            <button type="submit" class="btn btn-primary btn-lg w-100 shadow fw-bold py-3">SALVAR PESQUISA</button>
         </form>
     </div>
 </div>
 
 <script>
-/**
- * Mascara de Moeda
- */
-function funcaoMascaraMoeda(campo) {
-    let valor_limpo = campo.value.replace(/\D/g, "");
-    valor_limpo = (valor_limpo / 100).toFixed(2) + "";
-    valor_limpo = valor_limpo.replace(".", ",");
-    valor_limpo = valor_limpo.replace(/(\d)(\d{3})(\d{3}),/g, "$1.$2.$3,");
-    valor_limpo = valor_limpo.replace(/(\d)(\d{3}),/g, "$1.$2,");
-    campo.value = valor_limpo;
+function mascara(o) {
+    let v = o.value.replace(/\D/g, "");
+    v = (v / 100).toFixed(2) + "";
+    v = v.replace(".", ",");
+    v = v.replace(/(\d)(\d{3})(\d{3}),/g, "$1.$2.$3,");
+    v = v.replace(/(\d)(\d{3}),/g, "$1.$2,");
+    o.value = v;
 }
 
-/**
- * Autocomplete para Coleta Manual
- */
-function funcaoBuscarProdutosLocal(texto) {
-    const box = document.getElementById('container-sugestoes-coleta');
-    if (texto.length < 2) { box.style.display = 'none'; return; }
+function buscarLocal(t) {
+    const box = document.getElementById('sugestoes-coleta');
+    if (t.length < 2) { box.style.display = 'none'; return; }
+    fetch(`../api/buscar_produtos.php?termo=${encodeURIComponent(t)}`)
+    .then(r => r.json()).then(dados => {
+        box.innerHTML = "";
+        if (dados.length > 0) {
+            box.style.display = 'block';
+            dados.forEach(p => {
+                const d = document.createElement('div'); d.className = "item-sugestao";
+                d.innerHTML = `<strong>${p.nome}</strong><br><small>${p.marca}</small>`;
+                d.onclick = () => { document.getElementById('input_nome_coleta').value = p.nome; box.style.display = 'none'; };
+                box.appendChild(d);
+            });
+        } else { box.style.display = 'none'; }
+    });
+}
 
-    fetch(`../api/buscar_produtos.php?termo=${encodeURIComponent(texto)}`)
-        .then(res => res.json())
-        .then(dados => {
-            box.innerHTML = "";
-            if (dados.length > 0) {
-                box.style.display = 'block';
-                dados.forEach(item => {
-                    const div = document.createElement('div');
-                    div.className = "item-sugestao-clicavel";
-                    div.innerHTML = `<strong>${item.nome}</strong><br><small class='text-muted'>${item.marca}</small>`;
-                    div.onclick = () => {
-                        document.getElementById('input_nome_coleta').value = item.nome;
-                        box.style.display = 'none';
-                    };
-                    box.appendChild(div);
-                });
-            } else { box.style.display = 'none'; }
-        });
+function abrirNovoMercado() { document.getElementById('painel-mercado-coleta').style.display = 'block'; }
+function gravarMercadoColeta() {
+    const n = document.getElementById('nome_novo_mercado_coleta').value;
+    if(!n) return;
+    fetch('../api/registrar_mercado.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: n }) })
+    .then(r => r.json()).then(data => {
+        if(data.sucesso) {
+            const select = document.getElementById('select_mercado_coleta');
+            select.add(new Option(data.nome, data.id, true, true));
+            document.getElementById('painel-mercado-coleta').style.display = 'none';
+        }
+    });
 }
 </script>
 </body>
