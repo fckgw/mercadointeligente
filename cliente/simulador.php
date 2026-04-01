@@ -2,19 +2,17 @@
 /**
  * SISTEMA MERCADO INTELIGENTE - MVP
  * Arquivo: cliente/simulador.php
- * Finalidade: Interface mestre com Edição, Nota Fiscal, Alerta de Preço e BI Oficial.
  */
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require_once '../core/db.php';
 
-$usuario_esta_logado_no_sistema = isset($_SESSION['usuario_id']);
-$nome_do_usuario_para_exibicao   = $usuario_esta_logado_no_sistema ? $_SESSION['usuario_nome'] : "Visitante";
-$data_do_ultimo_acesso_usuario   = $usuario_esta_logado_no_sistema ? ($_SESSION['ultimo_acesso_formatado'] ?? date('d/m/Y H:i')) : "";
+$usuario_logado_atualmente = isset($_SESSION['usuario_id']);
+$nome_do_usuario_para_exibicao   = $usuario_logado_atualmente ? $_SESSION['usuario_nome'] : "Visitante";
+$data_do_ultimo_acesso_usuario   = $usuario_logado_atualmente ? ($_SESSION['ultimo_acesso_formatado'] ?? date('d/m/Y H:i')) : "";
 
 try {
-    $instrucao_sql_mercados = "SELECT id, nome FROM mercados ORDER BY nome ASC";
-    $lista_de_mercados_disponiveis = $pdo->query($instrucao_sql_mercados)->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $excecao_mercados) { $lista_de_mercados_disponiveis = []; }
+    $lista_mercados = $pdo->query("SELECT id, nome FROM mercados ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) { $lista_mercados = []; }
 ?>
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -37,6 +35,7 @@ try {
         .area-recibo { background: #fff; padding: 25px; border: 1px solid #e0e0e0; font-family: monospace; border-radius: 4px; }
         .linha-item { border-bottom: 1px dashed #bbb; padding: 10px 0; }
         .item-atencao { background-color: #fff5f5; border-left: 5px solid #dc3545; }
+        .indicador-status-conexao { position: fixed; top: 75px; right: 15px; z-index: 1100; font-size: 0.7rem; }
         #container-sugestoes { position: absolute; width: 100%; z-index: 2100; background: #fff; display: none; max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 10px; }
         .item-sugestao { padding: 15px; border-bottom: 1px solid #f8f9fa; cursor: pointer; text-align: left; width: 100%; display: block; background: none; border: none; }
         .painel-finalizar { position: fixed; bottom: 0; left: 0; width: 100%; background: linear-gradient(to top, #f4f7f6 80%, transparent); padding: 20px; z-index: 2000; display: flex; justify-content: center; }
@@ -44,19 +43,19 @@ try {
 </head>
 <body>
 
+<div id="indicador-conexao" class="indicador-status-conexao"></div>
+
 <nav class="barra-superior shadow-sm mb-4">
     <div class="container d-flex justify-content-between align-items-center">
         <a href="../index.php"><img src="../images/Logo_MercadoInteligente.png" alt="Logo" style="max-height: 40px;"></a>
-        
         <div class="d-flex align-items-center text-end">
             <div class="me-3">
                 <small>Olá, <b class="nome-destaque"><?php echo $nome_do_usuario_para_exibicao; ?></b></small><br>
                 <small class="text-muted">Acesso: <?php echo $data_do_ultimo_acesso_usuario; ?></small>
             </div>
-            
-            <?php if ($usuario_esta_logado_no_sistema): ?>
-                <a href="historico.php" class="btn btn-outline-primary btn-sm rounded-circle me-1" title="Histórico"><i class="bi bi-clock-history"></i></a>
-                <a href="../admin/logout.php" class="btn btn-outline-danger btn-sm rounded-circle" title="Sair"><i class="bi bi-box-arrow-right"></i></a>
+            <?php if ($usuario_logado_atualmente): ?>
+                <a href="historico.php" class="btn btn-outline-primary btn-sm rounded-circle me-1"><i class="bi bi-clock-history"></i></a>
+                <a href="../admin/logout.php" class="btn btn-outline-danger btn-sm rounded-circle"><i class="bi bi-box-arrow-right"></i></a>
             <?php else: ?>
                 <a href="../admin/login.php" class="btn btn-primary btn-sm rounded-pill px-3 fw-bold">Entrar</a>
             <?php endif; ?>
@@ -72,22 +71,20 @@ try {
 
     <!-- PASSO 1: MERCADO -->
     <div class="card cartao-estilizado p-4 mb-4" id="sessao-mercado">
-        <h6 class="fw-bold text-primary mb-3 text-center text-uppercase small">Estabelecimento de Compra</h6>
+        <h6 class="fw-bold text-primary mb-3 text-center text-uppercase small">Onde você está agora?</h6>
         <div class="input-group mb-3">
-            <select id="campo_identificador_mercado_selecionado" class="form-select campo-entrada shadow-sm">
+            <select id="campo_id_mercado_selecionado" class="form-select campo-entrada shadow-sm">
                 <option value="">Selecione o Supermercado...</option>
-                <?php foreach($lista_de_mercados_disponiveis as $m): ?>
+                <?php foreach($lista_mercados as $m): ?>
                     <option value="<?php echo $m['id']; ?>"><?php echo $m['nome']; ?></option>
                 <?php endforeach; ?>
             </select>
             <button class="btn btn-primary px-3 shadow-sm" onclick="funcaoExibirCadastroNovoMercado()"><i class="bi bi-plus-lg"></i></button>
         </div>
-
         <div id="container-cadastro-novo-mercado" style="display:none;" class="mt-2 p-3 bg-light rounded-3 border mb-3">
             <input type="text" id="input_nome_mercado_novo" class="form-control mb-2" placeholder="Nome do Mercado">
             <button class="btn btn-success btn-sm w-100 py-2 fw-bold" onclick="funcaoRegistrarNovoMercadoNoBancoDados()">SALVAR E USAR</button>
         </div>
-
         <button class="btn btn-primary btn-lg w-100 py-3 fw-bold shadow" onclick="funcaoIniciarSimulador()">ABRIR MEU CARRINHO</button>
     </div>
 
@@ -117,21 +114,19 @@ try {
 
             <div class="row g-2 mb-3">
                 <div class="col-7">
-                    <label class="form-label small fw-bold text-success">PREÇO UNITÁRIO</label>
                     <input type="text" id="input_valor_unitario" class="form-control campo-entrada fw-bold text-success" inputmode="numeric" placeholder="0,00" onkeyup="funcaoAplicarMascaraMoeda(this)">
                 </div>
                 <div class="col-5">
-                    <label class="form-label small fw-bold text-muted" id="label-qtd-instr">QUANTIDADE</label>
                     <input type="text" id="input_quantidade" class="form-control campo-entrada text-center" inputmode="numeric" value="1" onkeyup="funcaoAplicarMascaraPeso(this)">
                 </div>
             </div>
 
             <div class="alert alert-light border text-center p-2 mb-3">
-                <small class="text-muted">Subtotal item: </small>
+                <small class="text-muted">Subtotal: </small>
                 <span class="fw-bold h5" id="label_previa_subtotal">R$ 0,00</span>
             </div>
 
-            <button onclick="funcaoAdicionarAoCarrinho()" class="btn btn-primary btn-lg w-100 py-3 fw-bold shadow">ADICIONAR ITEM</button>
+            <button onclick="funcaoAdicionarNovoItemAoCarrinho()" class="btn btn-primary btn-lg w-100 py-3 fw-bold shadow">ADICIONAR ITEM</button>
         </div>
 
         <div class="area-recibo shadow-sm mb-5">
@@ -149,15 +144,33 @@ try {
 </div>
 
 <!-- MODAL CÂMERA -->
-<div class="modal fade" id="modalCamera" tabindex="-1"><div class="modal-dialog modal-dialog-centered text-center"><div class="modal-content"><div class="modal-body"><div id="video-qr"></div><button class="btn btn-danger mt-3" data-bs-dismiss="modal" onclick="pararCamera()">CANCELAR</button></div></div></div></div>
+<div class="modal fade" id="modalCamera" tabindex="-1"><div class="modal-dialog modal-dialog-centered text-center"><div class="modal-content"><div class="modal-body"><div id="video-qr" style="width:100%"></div><button class="btn btn-danger mt-3" data-bs-dismiss="modal" onclick="pararCamera()">CANCELAR</button></div></div></div></div>
 
 <script>
+/**
+ * LÓGICA MERCADO INTELIGENTE - BD SOFTECH
+ */
 let lista_itens_sessao = [];
 let id_mercado_referencia = "";
 let leitor_instancia = null;
+const usuario_logado = <?php echo $usuario_logado_atualmente ? 'true' : 'false'; ?>;
+
+// MONITORAMENTO DE CONEXÃO
+window.addEventListener('online', funcaoAtualizarStatusInternet);
+window.addEventListener('offline', funcaoAtualizarStatusInternet);
+
+function funcaoAtualizarStatusInternet() {
+    const indicador = document.getElementById('indicador-conexao');
+    if (navigator.onLine) {
+        indicador.innerHTML = '<span class="badge bg-success shadow-sm">SINAL ONLINE</span>';
+        if(usuario_logado) { funcaoSincronizarBufferOffline(); }
+    } else {
+        indicador.innerHTML = '<span class="badge bg-secondary shadow-sm">MODO AVIÃO</span>';
+    }
+}
 
 function funcaoIniciarSimulador() {
-    const sel = document.getElementById('campo_identificador_mercado_selecionado');
+    const sel = document.getElementById('campo_id_mercado_selecionado');
     id_mercado_referencia = sel.value;
     if (!id_mercado_referencia) return Swal.fire('Aviso', 'Selecione o mercado.', 'info');
 
@@ -166,41 +179,75 @@ function funcaoIniciarSimulador() {
     document.getElementById('bloco-finalizar').style.display = 'flex';
     document.getElementById('etiqueta-mercado-visual').innerText = sel.options[sel.selectedIndex].text.toUpperCase();
 
-    funcaoSincronizarServidor();
+    funcaoAtualizarStatusInternet();
+    funcaoCarregarDados();
 }
 
-function funcaoSincronizarServidor() {
-    if(<?php echo $usuario_esta_logado_no_sistema ? 'true' : 'false'; ?>) {
+function funcaoCarregarDados() {
+    if(usuario_logado && navigator.onLine) {
         fetch(`../api/gerenciar_temporarios.php?acao=listar_itens_temporarios&mercado_id=${id_mercado_referencia}`)
-        .then(r => r.json()).then(d => { if(d.sucesso) { lista_itens_sessao = d.lista_itens; funcaoRenderizarGrade(); } });
+        .then(r => r.json()).then(d => { 
+            if(d.sucesso) { lista_itens_sessao = d.lista_itens; funcaoRenderizarGrade(); } 
+        });
+    } else {
+        const buffer = JSON.parse(localStorage.getItem('mi_buffer_offline') || "[]");
+        lista_itens_sessao = buffer.filter(i => i.mercado_id == id_mercado_referencia);
+        funcaoRenderizarGrade();
     }
 }
 
-function funcaoAdicionarAoCarrinho() {
+function funcaoAdicionarNovoItemAoCarrinho() {
     const nome = document.getElementById('input_nome_produto_atual').value;
     const prodId = document.getElementById('input_id_produto_selecionado').value;
     const precoTxt = document.getElementById('input_valor_unitario').value;
     const qtdTxt = document.getElementById('input_quantidade').value;
     const unid = document.querySelector('input[name="unid_med"]:checked').value;
 
-    if (!nome || !precoTxt || precoTxt === "0,00") return Swal.fire('Erro', 'Nome e Preço são obrigatórios.', 'warning');
+    if (!nome || !precoTxt || precoTxt === "0,00") return Swal.fire('Erro', 'Nome e Preço obrigatórios.', 'warning');
 
     const vP = parseFloat(precoTxt.replace(/\./g, '').replace(',', '.'));
     const vQ = parseFloat(qtdTxt.replace(',', '.'));
     const sub = parseFloat((vP * vQ).toFixed(2));
 
-    const item = { nome: nome, produto_id: prodId, preco: vP, quantidade: vQ, unidade: unid, subtotal: sub };
+    const item = { nome: nome, produto_id: prodId, preco: vP, quantidade: vQ, unidade: unid, subtotal: sub, mercado_id: id_mercado_referencia };
 
-    fetch('../api/gerenciar_temporarios.php?acao=adicionar_item_temporario', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...item, mercado_id: id_mercado_referencia})
-    }).then(() => {
-        funcaoSincronizarServidor();
-        document.getElementById('input_nome_produto_atual').value = "";
-        document.getElementById('input_id_produto_selecionado').value = "";
-        document.getElementById('input_valor_unitario').value = "";
-        document.getElementById('label_previa_subtotal').innerText = "R$ 0,00";
-    });
+    // GRAVA NO BUFFER ANTES DE TUDO (SEGURANÇA)
+    let buffer = JSON.parse(localStorage.getItem('mi_buffer_offline') || "[]");
+    buffer.push(item);
+    localStorage.setItem('mi_buffer_offline', JSON.stringify(buffer));
+
+    // ATUALIZA INTERFACE
+    lista_itens_sessao.push(item);
+    funcaoRenderizarGrade();
+
+    if(navigator.onLine && usuario_logado) {
+        funcaoSincronizarBufferOffline();
+    } else {
+        Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Salvo em modo Offline', showConfirmButton: false, timer: 2000 });
+    }
+
+    // RESET
+    document.getElementById('input_nome_produto_atual').value = "";
+    document.getElementById('input_id_produto_selecionado').value = "";
+    document.getElementById('input_valor_unitario').value = "";
+    document.getElementById('label_previa_subtotal').innerText = "R$ 0,00";
+}
+
+function funcaoSincronizarBufferOffline() {
+    let pendentes = JSON.parse(localStorage.getItem('mi_buffer_offline') || "[]");
+    if(pendentes.length > 0 && navigator.onLine) {
+        fetch('../api/gerenciar_temporarios.php?acao=sincronizar_massa_offline', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(pendentes)
+        }).then(r => r.json()).then(res => {
+            if(res.sucesso) {
+                localStorage.removeItem('mi_buffer_offline');
+                Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Sincronizado com o Banco!', showConfirmButton: false, timer: 3000 });
+                funcaoCarregarDados();
+            }
+        }).catch(err => console.log("Erro Sync: ", err));
+    }
 }
 
 function funcaoRenderizarGrade() {
@@ -209,22 +256,19 @@ function funcaoRenderizarGrade() {
     let total = 0;
 
     lista_itens_sessao.forEach((item, i) => {
-        const sub = Number(item.subtotal);
-        total += sub;
-        
+        const s = Number(item.subtotal);
+        total += s;
         const isPrecoZero = (Number(item.preco) <= 0);
-        const classeAlerta = isPrecoZero ? 'item-atencao' : '';
-        const avisoPreco = isPrecoZero ? '<br><small class="text-danger fw-bold">Preço não identificado! Edite no lápis.</small>' : '';
 
         container.innerHTML += `
-            <div class="linha-item d-flex justify-content-between align-items-center p-2 ${classeAlerta}">
+            <div class="linha-item d-flex justify-content-between align-items-center p-2 ${isPrecoZero ? 'item-atencao' : ''}">
                 <div style="flex:1">
                     <div class="fw-bold small text-uppercase">${item.nome}</div>
                     <small>${item.quantidade} ${item.unidade} x R$ ${Number(item.preco).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</small>
-                    ${avisoPreco}
+                    ${isPrecoZero ? '<br><small class="text-danger fw-bold">Corrija no lápis.</small>' : ''}
                 </div>
                 <div class="text-end">
-                    <div class="fw-bold">R$ ${sub.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
+                    <div class="fw-bold">R$ ${s.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
                     <div class="mt-1">
                         <button class="btn btn-sm btn-light border" onclick="funcaoEditarItem(${i})"><i class="bi bi-pencil text-primary"></i></button>
                         <button class="btn btn-sm btn-light border" onclick="funcaoRemoverItem(${i}, ${item.id || 0})"><i class="bi bi-trash text-danger"></i></button>
@@ -236,7 +280,7 @@ function funcaoRenderizarGrade() {
 }
 
 function funcaoRemoverItem(idx, idB) {
-    if(idB > 0) fetch(`../api/gerenciar_temporarios.php?acao=remover_item_rascunho&id=${idB}`);
+    if(navigator.onLine && idB > 0) fetch(`../api/gerenciar_temporarios.php?acao=remover_item_rascunho&id=${idB}`);
     lista_itens_sessao.splice(idx, 1);
     funcaoRenderizarGrade();
 }
@@ -259,14 +303,14 @@ function funcaoEditarItem(idx) {
 }
 
 function funcaoEscolherMetodoLeituraNotaFiscal() {
-    if(!id_mercado_referencia) return Swal.fire('Aviso', 'Selecione o mercado primeiro.', 'warning');
+    if(!id_mercado_referencia) return Swal.fire('Aviso', 'Selecione o mercado.', 'warning');
     Swal.fire({
         title: 'Importar Nota',
         showDenyButton: true, showCancelButton: true,
-        confirmButtonText: 'Colar Link', denyButtonText: 'Abrir Câmera'
+        confirmButtonText: 'Colar Link', denyButtonText: 'Câmera QR'
     }).then((res) => {
         if(res.isConfirmed) {
-            Swal.fire({ title: 'URL da Nota', input: 'text' }).then(r => { if(r.value) processarNota(r.value); });
+            Swal.fire({ title: 'Cole a URL', input: 'text' }).then(r => { if(r.value) processarNota(r.value); });
         } else if(res.isDenied) {
             new bootstrap.Modal(document.getElementById('modalCamera')).show();
             leitor_instancia = new Html5Qrcode("video-qr");
@@ -280,12 +324,12 @@ function funcaoEscolherMetodoLeituraNotaFiscal() {
 }
 
 function processarNota(url) {
-    Swal.fire({ title: 'Importando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    Swal.fire({ title: 'Importando...', didOpen: () => Swal.showLoading() });
     fetch('../api/processar_nfce.php', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ url: url, mercado_id: id_mercado_referencia })
     }).then(r => r.json()).then(d => {
-        if(d.sucesso) { Swal.fire('Pronto!', 'Itens carregados. Verifique preços zerados!', 'success').then(() => funcaoSincronizarServidor()); }
+        if(d.sucesso) { Swal.fire('Pronto!', 'Dados carregados.', 'success').then(() => funcaoCarregarDados()); }
         else { Swal.fire('Erro', d.mensagem_erro, 'error'); }
     });
 }
@@ -294,24 +338,21 @@ function pararCamera() { if(leitor_instancia) leitor_instancia.stop(); }
 
 function funcaoFinalizarGravacaoOficialNoBI() {
     if (lista_itens_sessao.length === 0) return;
-    
-    // VALIDAR PREÇOS ZERADOS
-    const temPrecoZero = lista_itens_sessao.some(i => Number(i.preco) <= 0);
-    if(temPrecoZero) return Swal.fire('Atenção', 'Existem itens com preço R$ 0,00. Corrija-os clicando no lápis antes de salvar.', 'error');
+    if(!navigator.onLine) return Swal.fire('Atenção', 'Internet necessária.', 'warning');
 
-    Swal.fire({ title: 'Gravando BI...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    Swal.fire({ title: 'Salvando no BI...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     fetch('../api/gerenciar_temporarios.php?acao=finalizar_e_gravar_oficial', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ mercado_id: id_mercado_referencia })
     }).then(r => r.json()).then(d => {
         if(d.sucesso) { Swal.fire('Sucesso!', 'BI Atualizado!', 'success').then(() => location.reload()); }
-        else { Swal.fire('Erro', d.mensagem_erro, 'error'); }
     });
 }
 
 function funcaoPesquisarProdutosNaBaseDinamica(termo) {
     const cx = document.getElementById('container-sugestoes');
     if (termo.length < 2) return cx.style.display = 'none';
+    if (!navigator.onLine) return;
     fetch(`../api/buscar_produtos.php?termo=${encodeURIComponent(termo)}`)
     .then(r => r.json()).then(produtos => {
         cx.innerHTML = "";
@@ -332,7 +373,7 @@ function funcaoPesquisarProdutosNaBaseDinamica(termo) {
     });
 }
 
-function funcaoMascaraMoeda(c) {
+function funcaoAplicarMascaraMoeda(c) {
     let v = c.value.replace(/\D/g, "");
     v = (v / 100).toFixed(2).replace(".", ",");
     v = v.replace(/(\d)(\d{3})(\d{3}),/g, "$1.$2.$3,");
@@ -340,7 +381,6 @@ function funcaoMascaraMoeda(c) {
     c.value = v;
     funcaoCalcularSubtotal();
 }
-function funcaoAplicarMascaraMoeda(c) { funcaoMascaraMoeda(c); }
 
 function funcaoAplicarMascaraPeso(c) {
     const med = document.querySelector('input[name="unid_med"]:checked').value;
@@ -373,9 +413,8 @@ function funcaoRegistrarNovoMercadoNoBancoDados() {
     fetch('../api/registrar_mercado.php', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ nome: nome }) })
     .then(r => r.json()).then(data => {
         if (data.sucesso) {
-            const select = document.getElementById('campo_identificador_mercado_selecionado');
-            const option = new Option(nome, data.id, true, true);
-            select.add(option);
+            const select = document.getElementById('campo_id_mercado_selecionado');
+            select.add(new Option(nome, data.id, true, true));
             document.getElementById('container-cadastro-novo-mercado').style.display = 'none';
         }
     });
